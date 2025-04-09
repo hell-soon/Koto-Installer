@@ -8,7 +8,7 @@ echo -e "\n\033[1;36m
   
   Привет! Я котик-инсталлятор HyprlandUtil!
   Сейчас всё настроим =^..^=
-\033[0"
+\033[0m"
 # ======================================================================
 
 set -e  # Автоматически завершать скрипт при ошибке
@@ -19,6 +19,15 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# Функция проверки установки пакета
+is_installed() {
+    if pacman -Qi "$1" &>/dev/null || yay -Qi "$1" &>/dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 # Проверяем, установлен ли yay
 check_yay() {
     if ! command -v yay &> /dev/null; then
@@ -26,55 +35,95 @@ check_yay() {
         echo "git clone https://aur.archlinux.org/yay-bin.git /tmp/yay-bin && cd /tmp/yay-bin && makepkg -si --noconfirm"
         exit 1
     fi
-        echo -e "${GREEN}✅ yay установлен.${NC}"
+    echo -e "${GREEN}✅ yay установлен.${NC}"
 }
 
-
-
-# Установка пакетов через yay
+# Установка пакетов через yay с проверкой
 install_packages() {
-    echo -e "${YELLOW}🔄 Устанавливаем пакеты...${NC}"
-    yay -S --needed --noconfirm \
-        visual-studio-code-bin \
-        zen-browser \
-        telegram-desktop \
-        spotify-launcher \
-        ttf-maple-beta \
+    local packages=(
+        visual-studio-code-bin
+        zen-browser
+        telegram-desktop
+        spotify-launcher
+        ttf-maple-beta
         nodejs
+    )
+
+    echo -e "${YELLOW}🔄 Проверяем и устанавливаем пакеты...${NC}"
+    
+    for pkg in "${packages[@]}"; do
+        if is_installed "$pkg"; then
+            echo -e "${GREEN}✅ $pkg уже установлен. Пропускаем.${NC}"
+        else
+            echo -e "${YELLOW}⬇️ Устанавливаем $pkg...${NC}"
+            yay -S --needed --noconfirm "$pkg"
+        fi
+    done
 }
 
-# Установка nvm и Node.js
+# Установка nvm и Node.js с проверкой
 install_nvm() {
-    echo -e "${YELLOW}📌 Устанавливаем nvm и Node.js...${NC}"
+    echo -e "${YELLOW}📌 Проверяем nvm и Node.js...${NC}"
+    
+    # Проверка nvm
     if ! command -v nvm &> /dev/null; then
+        echo -e "${YELLOW}⬇️ Устанавливаем nvm...${NC}"
         curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.2/install.sh | bash
         export NVM_DIR="$HOME/.nvm"
         [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-        
-        nvm install 16
-        nvm install 21
-        nvm use 21
-        
-        # Устанавливаем ni для обеих версий Node
-        echo -e "${YELLOW}⚡ Устанавливаем @antfu/ni для Node 16 и 21...${NC}"
-        nvm use 16
-        npm i -g @antfu/ni
-        
-        nvm use 21
-        npm i -g @antfu/ni
     else
-        echo -e "${GREEN}✅ nvm уже установлен. Пропускаем.${NC}"
+        echo -e "${GREEN}✅ nvm уже установлен.${NC}"
+    fi
+
+    # Установка Node.js версий
+    local node_versions=(16 21)
+    for version in "${node_versions[@]}"; do
+        if nvm ls "$version" &>/dev/null; then
+            echo -e "${GREEN}✅ Node.js $version уже установлен.${NC}"
+        else
+            echo -e "${YELLOW}⬇️ Устанавливаем Node.js $version...${NC}"
+            nvm install "$version"
+        fi
+    done
+
+    # Установка ni
+    echo -e "${YELLOW}⚡ Проверяем @antfu/ni...${NC}"
+    nvm use 16
+    if npm list -g | grep -q "@antfu/ni"; then
+        echo -e "${GREEN}✅ @antfu/ni уже установлен для Node.js 16.${NC}"
+    else
+        echo -e "${YELLOW}⬇️ Устанавливаем @antfu/ni для Node.js 16...${NC}"
+        npm i -g @antfu/ni
+    fi
+
+    nvm use 21
+    if npm list -g | grep -q "@antfu/ni"; then
+        echo -e "${GREEN}✅ @antfu/ni уже установлен для Node.js 21.${NC}"
+    else
+        echo -e "${YELLOW}⬇️ Устанавливаем @antfu/ni для Node.js 21...${NC}"
+        npm i -g @antfu/ni
     fi
 }
 
-# Установка bun и ni
+# Установка bun и ni с проверкой
 install_bun() {
-    echo -e "${YELLOW}🛠️ Устанавливаем bun и ni...${NC}"
+    echo -e "${YELLOW}🛠️ Проверяем bun...${NC}"
+    
     if ! command -v bun &> /dev/null; then
+        echo -e "${YELLOW}⬇️ Устанавливаем bun...${NC}"
         curl -fsSL https://bun.sh/install | bash
         export PATH="$HOME/.bun/bin:$PATH"
+    else
+        echo -e "${GREEN}✅ bun уже установлен.${NC}"
     fi
-    bun i -g @antfu/ni
+
+    echo -e "${YELLOW}🔍 Проверяем @antfu/ni в bun...${NC}"
+    if bun pm ls | grep -q "@antfu/ni"; then
+        echo -e "${GREEN}✅ @antfu/ni уже установлен в bun.${NC}"
+    else
+        echo -e "${YELLOW}⬇️ Устанавливаем @antfu/ni через bun...${NC}"
+        bun i -g @antfu/ni
+    fi
 }
 
 # Копирование конфигов Hyprland с бэкапом
