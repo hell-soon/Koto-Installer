@@ -113,22 +113,70 @@ install_nvm() {
     clear_status
     log "${YELLOW}🔄 Настраиваем nvm и Node.js...${NC}"
     
-    # Проверка nvm
-    if ! command -v nvm &> /dev/null; then
-        log "${YELLOW}   ↓ Устанавливаем nvm...${NC}"
-        if ! curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.2/install.sh | bash; then
-            log "${RED}   ✗ Ошибка установки nvm${NC}"
+    export NVM_DIR="$HOME/.nvm" # Определяем NVM_DIR
+
+    # Создаем директорию NVM_DIR, если она не существует
+    # Это должно решить проблему "directory does not exist" из лога nvm install.sh
+    if [ ! -d "$NVM_DIR" ]; then
+        log "${YELLOW}   Создаем директорию для nvm: $NVM_DIR${NC}"
+        if ! mkdir -p "$NVM_DIR"; then
+            log "${RED}   ✗ Не удалось создать директорию $NVM_DIR${NC}"
             exit 1
         fi
-        export NVM_DIR="$HOME/.nvm"
-        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-        log "${GREEN}   ✓ nvm установлен${NC}"
+    fi
+
+    # Попытка загрузить nvm, если он уже установлен, но не загружен в текущей сессии
+    if [ -s "$NVM_DIR/nvm.sh" ]; then
+        . "$NVM_DIR/nvm.sh" # Загружаем nvm
+    fi
+
+    # Проверка nvm ПОСЛЕ попытки загрузки
+    if ! command -v nvm &> /dev/null; then
+        log "${YELLOW}   ↓ nvm не найден или не загружен. Устанавливаем nvm...${NC}"
+        
+        LATEST_NVM_TAG=$(curl -s "https://api.github.com/repos/nvm-sh/nvm/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+
+        if [ -z "$LATEST_NVM_TAG" ]; then
+            log "${YELLOW}   ⚠️ Не удалось получить последнюю версию nvm, используем v0.39.7 как запасной вариант.${NC}"
+            LATEST_NVM_TAG="v0.39.7" # Укажите здесь актуальную стабильную версию как fallback
+        else
+            log "   Используем последнюю версию nvm: $LATEST_NVM_TAG"
+        fi
+
+        # Установка nvm. Добавляем PROFILE=/dev/null чтобы nvm не пытался изменить .bashrc и т.п.
+        # Мы сами загружаем nvm.sh
+        # Переменная NVM_DIR уже экспортирована, и директория создана.
+        if ! curl -o- "https://raw.githubusercontent.com/nvm-sh/nvm/${LATEST_NVM_TAG}/install.sh" | PROFILE=/dev/null bash; then
+            log "${RED}   ✗ Ошибка установки nvm${NC}"
+            # Можно также проверить содержимое $NVM_DIR, если там появились какие-то логи от nvm
+            exit 1 # Критическая ошибка, выходим
+        fi
+        
+        # Загружаем nvm в текущую сессию оболочки ПОСЛЕ установки
+        # Проверяем существование файла перед sourcing'ом
+        if [ -s "$NVM_DIR/nvm.sh" ]; then
+            . "$NVM_DIR/nvm.sh"
+            log "${GREEN}   ✓ nvm установлен и загружен${NC}"
+        else
+            log "${RED}   ✗ Файл $NVM_DIR/nvm.sh не найден после установки nvm.${NC}"
+            exit 1
+        fi
     else
-        log "${GREEN}   ✓ nvm уже установлен${NC}"
+        log "${GREEN}   ✓ nvm уже установлен и загружен${NC}"
+    fi
+
+    # Дополнительная проверка, что nvm теперь точно доступен
+    if ! command -v nvm &> /dev/null; then
+        log "${RED}   ✗ FATAL: Команда nvm все еще недоступна после установки/загрузки. Проверьте ваш ~/.bashrc (или ~/.zshrc и т.д.) и перезапустите терминал, затем скрипт.${NC}"
+        log "${RED}   ✗ Возможно, потребуется вручную добавить в ваш ~/.bashrc (или аналогичный):${NC}"
+        log "${RED}   export NVM_DIR=\"\$HOME/.nvm\"${NC}"
+        log "${RED}   [ -s \"\$NVM_DIR/nvm.sh\" ] && \\. \"\$NVM_DIR/nvm.sh\" # This loads nvm${NC}"
+        log "${RED}   [ -s \"\$NVM_DIR/bash_completion\" ] && \\. \"\$NVM_DIR/bash_completion\"  # This loads nvm bash_completion${NC}"
+        exit 1
     fi
 
     # Установка Node.js версий
-    local node_versions=(16 21)
+    local node_versions=(16 21) 
     for version in "${node_versions[@]}"; do
         if nvm ls "$version" &>/dev/null; then
             log "${GREEN}   ✓ Node.js $version уже установлен${NC}"
@@ -136,41 +184,35 @@ install_nvm() {
             log "${YELLOW}   ↓ Устанавливаем Node.js $version...${NC}"
             if ! nvm install "$version"; then
                 log "${RED}   ✗ Ошибка установки Node.js $version${NC}"
-                continue
+                continue 
             fi
             log "${GREEN}   ✓ Node.js $version установлен${NC}"
         fi
-    done
 
-    # Установка ni
-    log "${YELLOW}   ⚡ Проверяем @antfu/ni...${NC}"
-    if ! nvm use 16; then
-        log "${RED}   ✗ Не удалось переключиться на Node.js 16${NC}"
-    else
-        if npm list -g | grep -q "@antfu/ni"; then
-            log "${GREEN}   ✓ @antfu/ni уже установлен для Node.js 16${NC}"
+        log "${YELLOW}   ⚡ Проверяем @antfu/ni для Node.js $version...${NC}"
+        if ! nvm use "$version"; then
+            log "${RED}   ✗ Не удалось переключиться на Node.js $version${NC}"
+            continue 
+        fi
+        
+        if npm list -g --depth=0 @antfu/ni &>/dev/null; then
+            log "${GREEN}   ✓ @antfu/ni уже установлен для Node.js $version${NC}"
         else
-            log "${YELLOW}   ↓ Устанавливаем @antfu/ni для Node.js 16...${NC}"
+            log "${YELLOW}   ↓ Устанавливаем @antfu/ni для Node.js $version...${NC}"
             if ! npm i -g @antfu/ni; then
-                log "${RED}   ✗ Ошибка установки @antfu/ni для Node.js 16${NC}"
+                log "${RED}   ✗ Ошибка установки @antfu/ni для Node.js $version${NC}"
             else
-                log "${GREEN}   ✓ @antfu/ni установлен для Node.js 16${NC}"
+                log "${GREEN}   ✓ @antfu/ni установлен для Node.js $version${NC}"
             fi
         fi
-    fi
-
-    if ! nvm use 21; then
-        log "${RED}   ✗ Не удалось переключиться на Node.js 21${NC}"
-    else
-        if npm list -g | grep -q "@antfu/ni"; then
-            log "${GREEN}   ✓ @antfu/ni уже установлен для Node.js 21${NC}"
+    done
+    
+    if [ ${#node_versions[@]} -gt 0 ]; then
+        latest_node_in_list="${node_versions[-1]}"
+        if nvm alias default "$latest_node_in_list"; then
+            log "${GREEN}   ✓ Node.js $latest_node_in_list установлен как версия по умолчанию.${NC}"
         else
-            log "${YELLOW}   ↓ Устанавливаем @antfu/ni для Node.js 21...${NC}"
-            if ! npm i -g @antfu/ni; then
-                log "${RED}   ✗ Ошибка установки @antfu/ni для Node.js 21${NC}"
-            else
-                log "${GREEN}   ✓ @antfu/ni установлен для Node.js 21${NC}"
-            fi
+            log "${YELLOW}   ⚠️ Не удалось установить Node.js $latest_node_in_list как версию по умолчанию.${NC}"
         fi
     fi
     
