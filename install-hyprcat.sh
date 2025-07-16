@@ -2,60 +2,53 @@
 
 # ======================================================================
 echo -e "\n\033[1;36m
-  /\_/\  
- ( o.o ) 
+  /\_/\
+ ( o.o )
   > ^ <
-  
+
   Привет! Я котик-инсталлятор HyprlandUtil!
   Сейчас всё настроим =^..^=
 \033[0m"
 # ======================================================================
 
-set -e  # Автоматически завершать скрипт при ошибке
+set -e
 
-# Настройка логирования
 LOG_FILE="$HOME/hyprland_installer_$(date +%Y%m%d_%H%M%S).log"
 exec 3>&1 1>"$LOG_FILE" 2>&1
 trap 'echo "Логирование завершено. Полный лог: $LOG_FILE" >&3' EXIT
 
-# Цвета для удобства
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Функция для вывода в консоль и лог
 log() {
     local message="$1"
     local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
     echo -e "${timestamp} - ${message}" | tee /dev/fd/3
 }
 
-# Переменные для прогресс-бара
 TOTAL_STEPS=6
 CURRENT_STEP=0
 BAR_WIDTH=50
 
-# Функция для отображения прогресса
 show_progress() {
     CURRENT_STEP=$((CURRENT_STEP + 1))
     PERCENT=$((CURRENT_STEP * 100 / TOTAL_STEPS))
     FILL=$((CURRENT_STEP * BAR_WIDTH / TOTAL_STEPS))
     EMPTY=$((BAR_WIDTH - FILL))
-    
+
     printf "\r${BLUE}Прогресс: ["
     printf "%${FILL}s" | tr ' ' '='
     printf "%${EMPTY}s" | tr ' ' ' '
     printf "] %d%%${NC}" $PERCENT >&3
 }
 
-# Функция для очистки строки состояния
 clear_status() {
     printf "\r%${COLUMNS}s\r" >&3
 }
 
-# Функция проверки установки пакета
 is_installed() {
     if pacman -Qi "$1" &>/dev/null || yay -Qi "$1" &>/dev/null; then
         return 0
@@ -64,11 +57,10 @@ is_installed() {
     fi
 }
 
-# Проверяем, установлен ли yay
 check_yay() {
     clear_status
     log "${YELLOW}🔍 Проверяем наличие yay...${NC}"
-    
+
     if ! command -v yay &> /dev/null; then
         log "${RED}❌ yay не установлен! Установите его вручную:${NC}"
         log "git clone https://aur.archlinux.org/yay-bin.git /tmp/yay-bin && cd /tmp/yay-bin && makepkg -si --noconfirm"
@@ -78,20 +70,46 @@ check_yay() {
     log "${GREEN}✅ yay установлен.${NC}"
 }
 
-# Установка пакетов через yay с проверкой
 install_packages() {
     clear_status
     local packages=(
-        visual-studio-code-bin
         zen-browser
         telegram-desktop
         spotify-launcher
         ttf-maplemono
         nodejs
     )
+    local editor_pkg=""
 
-    log "${YELLOW}📦 Начинаем установку пакетов...${NC}"
-    
+    log "${YELLOW}🤔 Выбор редактора кода...${NC}"
+    echo -e "\n${YELLOW}Какой редактор кода вы хотите установить?${NC}" >&3
+    echo "  1) Visual Studio Code (стабильный и популярный)" >&3
+    echo "  2) Zed Editor (быстрый, написан на Rust)" >&3
+
+    local editor_choice
+    while [[ "$editor_choice" != "1" && "$editor_choice" != "2" ]]; do
+        read -r -p "Введите номер (1 или 2) и нажмите Enter: " editor_choice < /dev/tty
+
+        case "$editor_choice" in
+            1)
+                editor_pkg="visual-studio-code-bin"
+                log "   Выбран редактор: Visual Studio Code ($editor_pkg)"
+                ;;
+            2)
+                editor_pkg="zed-editor"
+                log "   Выбран редактор: Zed Editor ($editor_pkg)"
+                ;;
+            *)
+                echo -e "${RED}Неверный выбор. Пожалуйста, введите 1 или 2.${NC}" >&3
+                editor_choice=""
+                ;;
+        esac
+    done
+
+    packages+=("$editor_pkg")
+
+    log "${YELLOW}📦 Начинаем установку выбранных пакетов...${NC}"
+
     for pkg in "${packages[@]}"; do
         if is_installed "$pkg"; then
             log "${GREEN}   ✓ $pkg уже установлен${NC}"
@@ -104,7 +122,7 @@ install_packages() {
             log "${GREEN}   ✓ $pkg успешно установлен${NC}"
         fi
     done
-    
+
     show_progress
 }
 
@@ -112,7 +130,7 @@ install_packages() {
 install_nvm() {
     clear_status
     log "${YELLOW}🔄 Настраиваем nvm и Node.js...${NC}"
-    
+
     export NVM_DIR="$HOME/.nvm" # Определяем NVM_DIR
 
     # Создаем директорию NVM_DIR, если она не существует
@@ -133,7 +151,7 @@ install_nvm() {
     # Проверка nvm ПОСЛЕ попытки загрузки
     if ! command -v nvm &> /dev/null; then
         log "${YELLOW}   ↓ nvm не найден или не загружен. Устанавливаем nvm...${NC}"
-        
+
         LATEST_NVM_TAG=$(curl -s "https://api.github.com/repos/nvm-sh/nvm/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
 
         if [ -z "$LATEST_NVM_TAG" ]; then
@@ -151,7 +169,7 @@ install_nvm() {
             # Можно также проверить содержимое $NVM_DIR, если там появились какие-то логи от nvm
             exit 1 # Критическая ошибка, выходим
         fi
-        
+
         # Загружаем nvm в текущую сессию оболочки ПОСЛЕ установки
         # Проверяем существование файла перед sourcing'ом
         if [ -s "$NVM_DIR/nvm.sh" ]; then
@@ -176,7 +194,7 @@ install_nvm() {
     fi
 
     # Установка Node.js версий
-    local node_versions=(16 21) 
+    local node_versions=(16 21)
     for version in "${node_versions[@]}"; do
         if nvm ls "$version" &>/dev/null; then
             log "${GREEN}   ✓ Node.js $version уже установлен${NC}"
@@ -184,7 +202,7 @@ install_nvm() {
             log "${YELLOW}   ↓ Устанавливаем Node.js $version...${NC}"
             if ! nvm install "$version"; then
                 log "${RED}   ✗ Ошибка установки Node.js $version${NC}"
-                continue 
+                continue
             fi
             log "${GREEN}   ✓ Node.js $version установлен${NC}"
         fi
@@ -192,9 +210,9 @@ install_nvm() {
         log "${YELLOW}   ⚡ Проверяем @antfu/ni для Node.js $version...${NC}"
         if ! nvm use "$version"; then
             log "${RED}   ✗ Не удалось переключиться на Node.js $version${NC}"
-            continue 
+            continue
         fi
-        
+
         if npm list -g --depth=0 @antfu/ni &>/dev/null; then
             log "${GREEN}   ✓ @antfu/ni уже установлен для Node.js $version${NC}"
         else
@@ -206,7 +224,7 @@ install_nvm() {
             fi
         fi
     done
-    
+
     if [ ${#node_versions[@]} -gt 0 ]; then
         latest_node_in_list="${node_versions[-1]}"
         if nvm alias default "$latest_node_in_list"; then
@@ -215,7 +233,7 @@ install_nvm() {
             log "${YELLOW}   ⚠️ Не удалось установить Node.js $latest_node_in_list как версию по умолчанию.${NC}"
         fi
     fi
-    
+
     show_progress
 }
 
@@ -223,7 +241,7 @@ install_nvm() {
 install_bun() {
     clear_status
     log "${YELLOW}🐇 Настраиваем bun...${NC}"
-    
+
     if ! command -v bun &> /dev/null; then
         log "${YELLOW}   ↓ Устанавливаем bun...${NC}"
         if ! curl -fsSL https://bun.sh/install | bash; then
@@ -247,7 +265,7 @@ install_bun() {
             log "${GREEN}   ✓ @antfu/ni установлен в bun${NC}"
         fi
     fi
-    
+
     show_progress
 }
 
@@ -257,10 +275,10 @@ copy_hypr_configs() {
     log "${YELLOW}📂 Обновляем конфиги Hyprland...${NC}"
     HYPR_DIR="$HOME/.config/hypr"
     BACKUP_DIR="$HYPR_DIR/backup_$(date +%Y%m%d_%H%M%S)"
-    
+
     mkdir -p "$HYPR_DIR"
     mkdir -p "$BACKUP_DIR"
-    
+
     # Функция для копирования с бэкапом
     copy_with_backup() {
         local file="$1"
@@ -281,10 +299,10 @@ copy_hypr_configs() {
             log "${RED}   ⚠️ Файл $file не найден!${NC}"
         fi
     }
-    
+
     copy_with_backup "keybindings.conf"
     copy_with_backup "windowrules.conf"
-    
+
     show_progress
 }
 
@@ -292,18 +310,18 @@ copy_hypr_configs() {
 main() {
     log "${BLUE}🐱 Начало работы котик-инсталлятора 🐱${NC}"
     log "Логирование в файл: $LOG_FILE"
-    
+
     check_yay
     install_packages
     install_nvm
     install_bun
     copy_hypr_configs
-    
+
     clear_status
     log "\n${GREEN}🎉 Всё готово! Hyprland настроен под ваши требования.${NC}"
     log "${BLUE}🐱 Спасибо за использование котик-инсталлятора! =^..^=${NC}"
     log "Полный лог установки: $LOG_FILE"
-    
+
     # Выводим финальное сообщение в консоль
     echo -e "\n${GREEN}🎉 Всё готово! Hyprland настроен под ваши требования.${NC}" >&3
     echo -e "${BLUE}🐱 Спасибо за использование котик-инсталлятора! =^..^=${NC}" >&3
